@@ -1,5 +1,6 @@
 <script context="module" lang="ts">
 	import { loadTranslations } from '$lib/i18n/i18n';
+	import DropboxMenu from '../components/dropbox.svelte';
 
 	// Object from language name to locale details.
 	let languageMap = {
@@ -75,6 +76,7 @@
 	import List, { Item, Text, PrimaryText, SecondaryText } from '@smui/list';
 
 	let menu: Menu;
+	let cloudMenu: Menu;
 	let anchor: HTMLDivElement;
 	let anchorClasses: { [k: string]: boolean } = {};
 	$languageState.locale = locale ?? 'en';
@@ -165,6 +167,36 @@
 			<Title>{$t('webmscore')}</Title>
 		</Section>
 		<Section align="end" toolbar>
+			<div
+				class={Object.keys(anchorClasses).join(' ')}
+				use:Anchor={{
+					addClass: (className) => {
+						if (!anchorClasses[className]) {
+							anchorClasses[className] = true;
+						}
+					},
+					removeClass: (className) => {
+						if (anchorClasses[className]) {
+							delete anchorClasses[className];
+							anchorClasses = anchorClasses;
+						}
+					}
+				}}
+				bind:this={anchor}
+			>
+				<IconButton on:click={() => cloudMenu.setOpen(true)} aria-label={$t('cloud')}>
+					<Icon class="material-icons-outlined">cloud</Icon>
+				</IconButton>
+				<Menu
+					bind:this={cloudMenu}
+					anchor={false}
+					bind:anchorElement={anchor}
+					anchorCorner="BOTTOM_START"
+					style="max-block-size: 384px"
+				>
+					<DropboxMenu />
+				</Menu>
+			</div>
 			<div
 				class={Object.keys(anchorClasses).join(' ')}
 				use:Anchor={{

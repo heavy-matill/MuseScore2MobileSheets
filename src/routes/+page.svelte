@@ -24,6 +24,7 @@
 	import MscxOptions from '../components/mscxOptions.svelte';
 	import PositionsOptions from '../components/positionsOptions.svelte';
 	import MetadataOptions from '../components/metadataOptions.svelte';
+	import MobileSheetsOptions from '../components/mobileSheetsOptions.svelte';
 	import WebMscore from 'webmscore';
 	import { t } from '$lib/i18n/i18n';
 
@@ -46,7 +47,7 @@
 	let npages: number[] = [1];
 	let progress = 0;
 	let loadingSnackbar;
-	let exportType = 'PDF';
+	let exportType = 'MobileSheets';
 	let exportTypes = [
 		'PDF',
 		'PNG',
@@ -60,7 +61,8 @@
 		'MSCZ',
 		'MSCX',
 		'Positions',
-		'Metadata'
+		'Metadata',
+		'MobileSheets'
 	];
 	let items = [
 		{
@@ -121,8 +123,18 @@
 		$homeState.downloadIsDisabled = true;
 	}
 
+	function updateExportType() {
+		if (exportType == 'MobileSheets') {
+			console.log('selected', exportType);
+			if (msczMetadatas) {
+				console.log(JSON.parse(msczMetadatas.toString()));
+			}
+		}
+		updateConvertDisabled();
+	}
+
 	//@ts-ignore
-	$: selected, updateConvertDisabled();
+	$: selected, updateExportType();
 
 	function selectAll() {
 		selected = items.map((item) => item.id);
@@ -145,7 +157,7 @@
 					'audio/midi',
 					'audio/x-gtp',
 					'audio/x-ptb',
-					'application/x-musescore+xml',
+					'application/x-musescore+xml'
 				],
 				extensions: [
 					'.mscz',
@@ -162,7 +174,7 @@
 					'.gpx',
 					'.gp',
 					'.ptb',
-					'.mscx',
+					'.mscx'
 				],
 				description: $t('all_supported_files'),
 				id: 'uploads',
@@ -289,26 +301,27 @@
 			WebMscore.ready.then(async () => {
 				fileIsLoading = true;
 				tempScores.push({
-					scoreBlob: await WebMscore.load(fileExt as any, new Uint8Array(await blobs.arrayBuffer())).then(
-						async (loaded) => {
-							await loaded.setSoundFont(
-								new Uint8Array(await (await fetch('./MS_Basic.sf3')).arrayBuffer())
-							);
-							if (!batchMode) {
-								await loaded.generateExcerpts();
-								await loaded.metadata().then(async (meta) => {
-									msczMetadatas.push(JSON.stringify(meta));
-									items = [items[0]];
-									meta.excerpts.forEach((part) => items.push(part));
-								});
-								npages.push(await loaded.npages());
-							} else {
-								msczMetadatas.push(JSON.stringify(await loaded.metadata()));
-							}
-							titles.push(await loaded.title());
-							return loaded;
+					scoreBlob: await WebMscore.load(
+						fileExt as any,
+						new Uint8Array(await blobs.arrayBuffer())
+					).then(async (loaded) => {
+						await loaded.setSoundFont(
+							new Uint8Array(await (await fetch('./MS_Basic.sf3')).arrayBuffer())
+						);
+						if (!batchMode) {
+							await loaded.generateExcerpts();
+							await loaded.metadata().then(async (meta) => {
+								msczMetadatas.push(JSON.stringify(meta));
+								items = [items[0]];
+								meta.excerpts.forEach((part) => items.push(part));
+							});
+							npages.push(await loaded.npages());
+						} else {
+							msczMetadatas.push(JSON.stringify(await loaded.metadata()));
 						}
-					),
+						titles.push(await loaded.title());
+						return loaded;
+					}),
 					scoreIndex: index
 				});
 				if (tempScores.length === inputFiles.length) {
@@ -513,6 +526,17 @@
 							});
 							fileExtension = '.json';
 							break;
+						case 'MobileSheets':
+							blob = await new Blob([await (await scores[0].savePdf()).buffer], {
+								type: 'application/pdf'
+							});
+							fileExtension = '.pdf';
+							break;
+							blob = await new Blob([await await scores[0].saveMetadata()], {
+								type: 'application/json'
+							});
+							fileExtension = '.json';
+							break;
 						default:
 							blob = new Blob();
 							errorMessage = $t('invalid_export_target_error');
@@ -701,6 +725,12 @@
 							fileExtension = '.json';
 							break;
 						case 'Metadata':
+							blob = await new Blob([await await score.saveMetadata()], {
+								type: 'application/json'
+							});
+							fileExtension = '.json';
+							break;
+						case 'MobileSheets':
 							blob = await new Blob([await await score.saveMetadata()], {
 								type: 'application/json'
 							});
@@ -903,6 +933,8 @@
 							<PositionsOptions />
 						{:else if exportType === 'Metadata'}
 							<MetadataOptions />
+						{:else if exportType === 'MobileSheets'}
+							<MobileSheetsOptions />
 						{:else}
 							<p class="mdc-typography--body2">{$t('invalid_export_target_error')}</p>
 						{/if}
