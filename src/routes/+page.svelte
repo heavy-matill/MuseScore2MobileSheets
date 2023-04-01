@@ -934,7 +934,7 @@
 						{:else if exportType === 'Metadata'}
 							<MetadataOptions />
 						{:else if exportType === 'MobileSheets'}
-							<MobileSheetsOptions />
+							<MobileSheetsOptions metaData={JSON.parse(msczMetadatas.toString())} />
 						{:else}
 							<p class="mdc-typography--body2">{$t('invalid_export_target_error')}</p>
 						{/if}
