@@ -12,21 +12,25 @@
 		console.log(val);
 		authURL = val;
 	});
+	console.log('hash', document.location.hash);
 	if (document.location.hash) {
-		console.log();
 		const hash = window.location.hash.slice(1); // remove the "#" symbol from the hash
 		const params = new URLSearchParams(hash); // create a URLSearchParams object from the hash
 		const accessToken = params.get('access_token'); // get the value of the "access_token" parameter
+		console.log('accessToken from hash', accessToken);
 		$dropboxState.accessToken = accessToken;
-		set('accessToken', $dropboxState.accessToken);
-		auth.setAccessToken(accessToken);
+		set('accessToken', accessToken);
+		//auth.setAccessToken(accessToken);
 		// browse correct dropbox folder?
 		browseDropbox(accessToken);
 		browseToDatabase();
 	} else {
 		get('accessToken').then((accessToken) => {
-			console.log(accessToken);
-			if (accessToken) $dropboxState.accessToken = accessToken;
+			console.log('accessToken', accessToken);
+			if (accessToken) {
+				$dropboxState.accessToken = accessToken;
+				browseDropbox(accessToken);
+			}
 		});
 	}
 
@@ -35,17 +39,46 @@
 		if (path) $dropboxState.path = path;
 	});
 
-	browseDropbox($dropboxState.accessToken);
+	//$: $dropboxState.accessToken, browseDropbox($dropboxState.accessToken);
 
 	function browseDropbox(accessToken) {
 		dbx = new Dropbox({ accessToken: accessToken });
-		dbx
+		/*dbx
 			.filesListFolder({ path: '' })
 			.then(function (response) {
-				console.log(response);
+				console.log('filesListFolder', response);
 			})
 			.catch(function (error) {
-				console.error(error);
+				console.log('filesListFolder', error);
+				//$dropboxState.accessToken = '';
+				//set('accessToken', '');
+				//auth.setAccessToken('');
+			});*/
+		dbx
+			.filesGetTemporaryLink({ path: $dropboxState.path })
+			.then(function (response) {
+				console.log('filesGetTemporaryLink', response);
+				$dropboxState.dbLink = response.result.link;
+			})
+			.catch(function (error) {
+				console.log('filesGetTemporaryLink', error);
+				$dropboxState.accessToken = '';
+				set('accessToken', '');
+				auth.setAccessToken('');
+			});
+
+		dbx
+			.filesDownload({ path: $dropboxState.path })
+			.then(function (response) {
+				console.log('filesDownload', response);
+				// @ts-ignore
+				$dropboxState.dbBlob = response.result.fileBlob;
+			})
+			.catch(function (error) {
+				console.log('filesDownload', error);
+				//$dropboxState.accessToken = '';
+				//set('accessToken', '');
+				//auth.setAccessToken('');
 			});
 	}
 
