@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/i18n';
 	import DataTable, { Head, Body, Row, Cell, Label, SortValue } from '@smui/data-table';
+	import Tooltip, { Wrapper } from '@smui/tooltip';
 	import TextField from '@smui/textfield';
 	import HelperText from '@smui/textfield/helper-text';
 	import IconButton, { Icon } from '@smui/icon-button';
@@ -109,12 +110,13 @@ GROUP BY
 	}
 	let items: Song[] = [];
 	$: filteredItems = items.filter((item) =>
-		selected.every((key) =>
-			mobileSheetsData[key]
-				.split('/')
-				.filter((s) => s)
-				.some((s) => item[key].toLowerCase().includes(s.toLowerCase()))
-		)
+		selected.every((key) => {
+			const searchWords = mobileSheetsData[key].split('/').filter((s) => s);
+			return (
+				!searchWords.length ||
+				searchWords.some((s) => item[key].toLowerCase().includes(s.toLowerCase()))
+			);
+		})
 	);
 	let sort: keyof Song = 'id';
 	let sortDirection: Lowercase<keyof typeof SortValue> = 'ascending';
@@ -149,13 +151,20 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 			<Row>
 				<Cell
 					><TextField bind:value={mobileSheetsData[key]} style="width:100%" label={key}>
-						<Icon
-							on:click={() => {
-								mobileSheetsData[key] = mobileSheetsDataOriginal[key];
-							}}
-							class="material-icons-outlined"
-							slot="trailingIcon">undo</Icon
-						>
+						<div slot="trailingIcon">
+							{#if mobileSheetsData[key]}<Icon
+									on:click={() => {
+										mobileSheetsData[key] = '';
+									}}
+									style="margin-right:10px;"
+									class="material-icons-outlined">backspace</Icon
+								>{/if}<Icon
+								on:click={() => {
+									mobileSheetsData[key] = mobileSheetsDataOriginal[key];
+								}}
+								class="material-icons-outlined">replay</Icon
+							>
+						</div>
 					</TextField>
 				</Cell>
 				{#if ['Artist', 'Song', 'Key'].indexOf(key) > -1}
@@ -221,12 +230,27 @@ Filter Database by checking the rows above.
 	</Head>
 	<Body>
 		{#each filteredItems as item (item.id)}
-			<Row>
+			<Row
+				on:click={() => {
+					Object.keys(mobileSheetsData).forEach((key) => {
+						mobileSheetsData[key] = item[key] ?? '';
+					});
+				}}
+			>
 				<!--Cell numeric>{item.id}</Cell-->
-				<Cell class="ellipsis-until-hover"><p>{item.Song}</p></Cell>
-				<Cell class="ellipsis-until-hover"><p>{item.Artist}</p></Cell>
+				<Wrapper>
+					<Cell class="ellipsis-until-hover"><p>{item.Song}</p></Cell>
+					{#if item.Artist.length > 20}<Tooltip yPos="below">{item.Song}.</Tooltip>{/if}
+				</Wrapper>
+				<Wrapper>
+					<Cell class="ellipsis-until-hover"><p>{item.Artist}</p></Cell>
+					{#if item.Artist.length > 20}<Tooltip yPos="below">{item.Artist}</Tooltip>{/if}
+				</Wrapper>
 				<Cell>{item.Key}</Cell>
-				<Cell class="ellipsis-until-hover"><p>{item.Type}</p></Cell>
+				<Wrapper>
+					<Cell class="ellipsis-until-hover"><p>{item.Type}</p></Cell>
+					{#if item.Type.length > 20}<Tooltip yPos="below">{item.Type}</Tooltip>{/if}
+				</Wrapper>
 				<!--Cell numeric>{item.Tempo}</Cell-->
 			</Row>
 		{/each}
@@ -236,14 +260,14 @@ Filter Database by checking the rows above.
 
 <style>
 	:global(.ellipsis-until-hover) p {
-		width: 120px;
+		max-width: 120px;
 		text-overflow: ellipsis;
 		overflow: hidden;
 		white-space: nowrap;
 	}
-	:global(.ellipsis-until-hover:hover) p {
+	/*:global(.ellipsis-until-hover:hover) p {
 		overflow: visible;
 		white-space: normal;
-		height: auto; /* just added this line */
-	}
+		height: auto;
+	} */
 </style>
