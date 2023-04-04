@@ -12,36 +12,45 @@
 		console.log(val);
 		authURL = val;
 	});
-	console.log('hash', document.location.hash);
-	if (document.location.hash) {
-		const hash = window.location.hash.slice(1); // remove the "#" symbol from the hash
-		const params = new URLSearchParams(hash); // create a URLSearchParams object from the hash
-		const accessToken = params.get('access_token'); // get the value of the "access_token" parameter
+
+	// initially trying to get accessToken from hash
+	const hash = window.location.hash.slice(1); // remove the "#" symbol from the hash
+	window.location.hash = '';
+	const params = new URLSearchParams(hash); // create a URLSearchParams object from the hash
+	let accessToken = params.get('access_token'); // get the value of the "access_token" parameter
+	if (accessToken) {
 		console.log('accessToken from hash', accessToken);
-		$dropboxState.accessToken = accessToken;
-		set('accessToken', accessToken);
-		//auth.setAccessToken(accessToken);
-		// browse correct dropbox folder?
-		browseDropbox(accessToken);
-		browseToDatabase();
+		browseToDatabase(accessToken);
+		verifyAndStoreAccessToken(accessToken);
+		// get path to database??
 	} else {
+		console.log('no accessToken in Hash');
 		get('accessToken').then((accessToken) => {
-			console.log('accessToken', accessToken);
-			if (accessToken) {
-				$dropboxState.accessToken = accessToken;
-				browseDropbox(accessToken);
-			}
+			verifyAndStoreAccessToken(accessToken);
 		});
 	}
 
-	get('path').then((path) => {
-		console.log(path);
-		if (path) $dropboxState.path = path;
-	});
-
 	//$: $dropboxState.accessToken, browseDropbox($dropboxState.accessToken);
 
+	async function verifyAndStoreAccessToken(accessToken) {
+		auth.setAccessToken(accessToken);
+		console.log('check and refresh', await auth.checkAndRefreshAccessToken());
+		accessToken = auth.getAccessToken();
+		console.log('accessToken', accessToken);
+		if (accessToken) {
+			$dropboxState.accessToken = accessToken;
+			set('accessToken', accessToken);
+			get('path').then((path) => {
+				if (path) {
+					$dropboxState.path = path;
+					browseDropbox(accessToken);
+				}
+			});
+		}
+	}
+
 	function browseDropbox(accessToken) {
+		console.log('browseDropbox with accessToken', accessToken);
 		dbx = new Dropbox({ accessToken: accessToken });
 		/*dbx
 			.filesListFolder({ path: '' })
@@ -88,10 +97,11 @@
 	Dropbox.appSecret = 'ez0f83t91t9z6t7';*/
 
 	import dropboxPicker from 'dropbox-file-picker';
-	function browseToDatabase() {
+	function browseToDatabase(accessToken) {
+		if (!accessToken) accessToken = $dropboxState.accessToken;
 		dropboxPicker
 			.open({
-				accessToken: $dropboxState.accessToken, // user's accessToken
+				accessToken: accessToken, // user's accessToken
 				allowedExtensions: ['db'], // like ['png', 'jpg', '.gif'] (with or without dot)
 				allowFolderSelection: false, // folder selection
 				isMultiple: false, // multiple entries (files/folders) selection
@@ -115,7 +125,7 @@
 			}) // user's accessToken
 			.then((result) => {
 				// promise with selected files/folders info
-				console.log(result);
+				console.log('picked dropbox path:', result);
 				set('path', result.path_display);
 				$dropboxState.path = result.path_display;
 			});
@@ -123,8 +133,9 @@
 </script>
 
 {#if !$dropboxState.accessToken}
-	Not Authorized!
-	<a href={authURL}>Authorize Dropbox Access</a>
+	Cloud access is not Authorized
+	<a href={authURL}>Authorize</a>
+	<Button on:click={(window.location.href = authURL)}>Authorize</Button>
 {:else}
 	Authorized!
 	{#if $dropboxState.path}
