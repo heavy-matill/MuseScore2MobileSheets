@@ -152,6 +152,22 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 				<Cell
 					><TextField bind:value={mobileSheetsData[key]} style="width:100%" label={key}>
 						<div slot="trailingIcon">
+							{#if key == 'Composer'}
+								{#if mobileSheetsData['Composer'] != mobileSheetsData['Artist']}
+									<Icon
+										on:click={() => {
+											mobileSheetsData['Composer'] = mobileSheetsData['Artist'];
+										}}
+										style="margin-right:10px"
+										class="material-icons-outlined"
+										>subdirectory_arrow_left
+									</Icon>
+								{:else}
+									<Icon style="margin-right:10px; opacity:20%" class="material-icons-outlined">
+										subdirectory_arrow_left</Icon
+									>
+								{/if}
+							{/if}
 							{#if mobileSheetsData[key]}
 								<Icon
 									on:click={() => {
@@ -162,15 +178,18 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 									>backspace
 								</Icon>
 							{:else}
-								<Icon style="margin-right:10px; opacity:20%" class="material-icons-outlined">backspace</Icon>
+								<Icon style="margin-right:10px; opacity:20%" class="material-icons-outlined"
+									>backspace</Icon
+								>
 							{/if}
 							{#if mobileSheetsData[key] != mobileSheetsDataOriginal[key]}
-							<Icon
-								on:click={() => {
-									mobileSheetsData[key] = mobileSheetsDataOriginal[key];
-								}}
-								class="material-icons-outlined">replay
-							</Icon>
+								<Icon
+									on:click={() => {
+										mobileSheetsData[key] = mobileSheetsDataOriginal[key];
+									}}
+									class="material-icons-outlined"
+									>replay
+								</Icon>
 							{:else}
 								<Icon style="opacity:20%" class="material-icons-outlined">replay</Icon>
 							{/if}
