@@ -152,18 +152,28 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 				<Cell
 					><TextField bind:value={mobileSheetsData[key]} style="width:100%" label={key}>
 						<div slot="trailingIcon">
-							{#if mobileSheetsData[key]}<Icon
+							{#if mobileSheetsData[key]}
+								<Icon
 									on:click={() => {
 										mobileSheetsData[key] = '';
 									}}
 									style="margin-right:10px;"
-									class="material-icons-outlined">backspace</Icon
-								>{/if}<Icon
+									class="material-icons-outlined"
+									>backspace
+								</Icon>
+							{:else}
+								<Icon style="margin-right:10px; opacity:20%" class="material-icons-outlined">backspace</Icon>
+							{/if}
+							{#if mobileSheetsData[key] != mobileSheetsDataOriginal[key]}
+							<Icon
 								on:click={() => {
 									mobileSheetsData[key] = mobileSheetsDataOriginal[key];
 								}}
-								class="material-icons-outlined">replay</Icon
-							>
+								class="material-icons-outlined">replay
+							</Icon>
+							{:else}
+								<Icon style="opacity:20%" class="material-icons-outlined">replay</Icon>
+							{/if}
 						</div>
 					</TextField>
 				</Cell>
@@ -240,7 +250,7 @@ Filter Database by checking the rows above.
 				<!--Cell numeric>{item.id}</Cell-->
 				<Wrapper>
 					<Cell class="ellipsis-until-hover"><p>{item.Song}</p></Cell>
-					{#if item.Artist.length > 20}<Tooltip yPos="below">{item.Song}.</Tooltip>{/if}
+					{#if item.Song.length > 20}<Tooltip yPos="below">{item.Song}.</Tooltip>{/if}
 				</Wrapper>
 				<Wrapper>
 					<Cell class="ellipsis-until-hover"><p>{item.Artist}</p></Cell>

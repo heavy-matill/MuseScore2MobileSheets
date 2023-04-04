@@ -1,0 +1,21 @@
+-- database: c:\Users\Mathias\Documents\MuseScore3\Partituren\test meta\mobilesheets.db
+
+-- Use the ▷ button in the top right corner to run the entire file.
+
+SELECT Songs.Title, Songs.Id, 
+KeySongs.SongId, KeySongs.KeyId,
+Key.Id, Key.Name AS KeyName,
+ArtistsSongs.SongId, ArtistsSongs.ArtistId,
+Artists.Id, Artists.Name AS ArtistsName,
+SourceTypeSongs.SongId, SourceTypeSongs.SourceTypeId,
+SourceType.Id, SourceType.Type AS SourceTypeName,
+GROUP_CONCAT(SourceType.Type,', ') TypeList
+FROM Songs 
+LEFT JOIN KeySongs ON Songs.Id = KeySongs.SongId
+LEFT JOIN "Key" ON Key.Id = KeySongs.KeyId
+LEFT JOIN ArtistsSongs ON Songs.Id = ArtistsSongs.SongId
+LEFT JOIN Artists ON Artists.Id = ArtistsSongs.ArtistId
+LEFT JOIN SourceTypeSongs ON Songs.Id = SourceTypeSongs.SongId
+LEFT JOIN SourceType ON SourceType.Id = SourceTypeSongs.SourceTypeId
+GROUP BY 
+    Songs.Id
