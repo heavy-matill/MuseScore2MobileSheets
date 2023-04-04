@@ -1,25 +1,14 @@
-<script>
+<script lang="ts">
 	import { t } from '$lib/i18n/i18n';
-	import DataTable, { Head, Body, Row, Cell } from '@smui/data-table';
+	import DataTable, { Head, Body, Row, Cell, Label, SortValue } from '@smui/data-table';
+	import TextField from '@smui/textfield';
+	import HelperText from '@smui/textfield/helper-text';
+	import IconButton, { Icon } from '@smui/icon-button';
 	import Checkbox from '@smui/checkbox';
 
 	import { dropboxState } from '../stores.js';
-	//import sqlite3 from 'node-sqlite3';
-	//import sqlite3 from 'sqlite3';
-	/*import { sqlite3InitModule } '$lib/jswasm/sqlite3.js';
-	var sqlite3;
-	sqlite3InitModule().then(function (sql) {
-		// The module is now loaded and the sqlite3 namespace
-		// object was passed to this function.
-		console.log('sqlite3:', sql);
-		sqlite3 = sql;
-	});*/
+
 	import initSqlJs from 'sql.js';
-	//const SQL = initSqlJs();
-
-	//import Database from 'better-sqlite3';
-
-	//const db = new sqlite3.Database('./mobilesheets.db');
 
 	export let metaData = {};
 	console.log(metaData);
@@ -27,8 +16,8 @@
 		Artist: 'composer',
 		Composer: 'composer',
 		Song: 'title',
-		Tempo: 'tempo',
-		Key: 'keysig'
+		Key: 'keysig',
+		Tempo: 'tempo' // Duration?
 	};
 	const musicalKeys = [
 		'Cb/Abm',
@@ -55,68 +44,206 @@
 			mobileSheetsData[key] = metaData[mobileSheetKeys[key]];
 		}
 	}
+	const mobileSheetsDataOriginal = Object.assign({}, mobileSheetsData);
 
 	$: $dropboxState.dbBlob, scanDB();
 	async function scanDB() {
-		console.log($dropboxState.dbBlob.length)
-		// sql.js
-		const SQL = await initSqlJs({
-			// Required to load the wasm binary asynchronously. Of course, you can host it wherever you want
-			// You can omit locateFile completely when running in node
-			locateFile: (file) => `https://sql.js.org/dist/${file}`
-		});
-		console.log(SQL)
-		var uInt8Array = new Uint8Array(await $dropboxState.dbBlob.arrayBuffer());
-		var db = new SQL.Database(uInt8Array);
-		console.log(uInt8Array.length)
-		var contents = db.exec('SELECT * FROM Songs');
-		//var contents = db.exec("SELECT name FROM sqlite_master WHERE type='table';");
-		console.log("DB:", contents);
-		// contents is now [{columns:['col1','col2',...], values:[[first row], [second row], ...]}]*/
-		// assuming arrayBuffer contains the result of the above operation...
+		const uInt8Array = new Uint8Array(await $dropboxState.dbBlob.arrayBuffer());
+		console.log('scanDB', uInt8Array.length);
+		if (uInt8Array.length) {
+			// sql.js
+			const SQL = await initSqlJs({
+				// Required to load the wasm binary asynchronously. Of course, you can host it wherever you want
+				// You can omit locateFile completely when running in node
+				locateFile: (file) => `https://sql.js.org/dist/${file}`
+			});
+			var db = new SQL.Database(uInt8Array);
+			var contents = db.exec(`SELECT Songs.Title, Songs.Id, 
+KeySongs.SongId, KeySongs.KeyId,
+Key.Id, Key.Name AS KeyName,
+ArtistsSongs.SongId, ArtistsSongs.ArtistId,
+Artists.Id, Artists.Name AS ArtistsName,
+SourceTypeSongs.SongId, SourceTypeSongs.SourceTypeId,
+SourceType.Id, SourceType.Type AS SourceTypeName,
+GROUP_CONCAT(SourceType.Type,', ') TypeList
+FROM Songs 
+LEFT JOIN KeySongs ON Songs.Id = KeySongs.SongId
+LEFT JOIN "Key" ON Key.Id = KeySongs.KeyId
+LEFT JOIN ArtistsSongs ON Songs.Id = ArtistsSongs.SongId
+LEFT JOIN Artists ON Artists.Id = ArtistsSongs.ArtistId
+LEFT JOIN SourceTypeSongs ON Songs.Id = SourceTypeSongs.SongId
+LEFT JOIN SourceType ON SourceType.Id = SourceTypeSongs.SourceTypeId
+GROUP BY 
+    Songs.Id
+`);
+			console.log('DB:', contents);
+			//var contents = db.exec("SELECT name FROM sqlite_master WHERE type='table';");
+			items = [];
+			contents[0].values.forEach((row) => {
+				items.push(<Song>(<unknown>{
+					id: Number(row[contents[0].columns.findIndex((s) => s == 'Id')]),
+					Song: noNullString(row[contents[0].columns.findIndex((s) => s == 'Title')]),
+					Artist: noNullString(row[contents[0].columns.findIndex((s) => s == 'ArtistsName')]),
+					Key: noNullString(row[contents[0].columns.findIndex((s) => s == 'KeyName')]),
+					Type: noNullString(row[contents[0].columns.findIndex((s) => s == 'TypeList')])
+					//Tempo: Number(row[contents[0].columns.findIndex((s) => s == 'Tempo')])
+				}));
+			});
+			console.log('items:', items);
 
-		/*//sqlite3 jswasm
-		var arrayBuffer = await $dropboxState.dbBlob.arrayBuffer();
-		const p = sqlite3.wasm.allocFromTypedArray(arrayBuffer);
-		const db = new sqlite3.oo1.DB();
-		const rc = sqlite3.capi.sqlite3_deserialize(
-			db.pointer,
-			'main',
-			p,
-			arrayBuffer.byteLength,
-			arrayBuffer.byteLength,
-			sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE
-			// Optionally:
-			// | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE
-		);
-		db.checkRc(rc);*/
+			// contents is now [{columns:['col1','col2',...], values:[[first row], [second row], ...]}]*/
+			// assuming arrayBuffer contains the result of the above operation...
+		}
 	}
-
 	let selected = [];
+	function noNullString(s) {
+		return s ? String(s) : '';
+	}
+	interface Song {
+		id: number;
+		Song: string;
+		Artist: string;
+		Key: string;
+		Type: string;
+		//Tempo: number;
+	}
+	let items: Song[] = [];
+	$: filteredItems = items.filter((item) =>
+		selected.every((key) =>
+			mobileSheetsData[key]
+				.split('/')
+				.filter((s) => s)
+				.some((s) => item[key].toLowerCase().includes(s.toLowerCase()))
+		)
+	);
+	let sort: keyof Song = 'id';
+	let sortDirection: Lowercase<keyof typeof SortValue> = 'ascending';
+
+	function handleSort() {
+		items.sort((a, b) => {
+			const [aVal, bVal] = [a[sort], b[sort]][
+				sortDirection === 'ascending' ? 'slice' : 'reverse'
+			]();
+			if (typeof aVal === 'string' && typeof bVal === 'string') {
+				return aVal.localeCompare(bVal);
+			}
+			return Number(aVal) - Number(bVal);
+		});
+		items = items;
+	}
 </script>
 
 <h1>File Metadata</h1>
-<DataTable style="max-width: 100%;">
+Create a new entry based on parsed Metadata or use it to filter database for existing entries to overwrite.
+<DataTable>
 	<Head>
 		<Row>
+			<Cell style="text-align:right;">Filter all</Cell>
 			<Cell checkbox>
-				<Checkbox />
+				<Checkbox class="material-icons-outlined">filter</Checkbox>
 			</Cell>
-			<Cell>Key</Cell>
-			<Cell>Value</Cell>
 		</Row>
 	</Head>
 	<Body>
-		{#each Object.entries(mobileSheetsData) as [key, value]}
+		{#each Object.entries(mobileSheetsData) as [key, val]}
 			<Row>
-				<Cell checkbox>
-					<Checkbox bind:group={selected} value={key} valueKey={key} />
+				<Cell
+					><TextField bind:value={mobileSheetsData[key]} style="width:100%" label={key}>
+						<Icon
+							on:click={() => {
+								mobileSheetsData[key] = mobileSheetsDataOriginal[key];
+							}}
+							class="material-icons-outlined"
+							slot="trailingIcon">undo</Icon
+						>
+					</TextField>
 				</Cell>
-				<Cell>{key}</Cell>
-				<Cell>{value}</Cell>
+				{#if ['Artist', 'Song', 'Key'].indexOf(key) > -1}
+					<Cell checkbox>
+						<Checkbox bind:group={selected} value={key} valueKey={key} />
+					</Cell>
+				{:else}
+					<Cell />
+				{/if}
 			</Row>
 		{/each}
 	</Body>
 </DataTable>
 <h1>Database</h1>
+Filter Database by checking the rows above.
+<DataTable
+	sortable
+	bind:sort
+	bind:sortDirection
+	on:SMUIDataTable:sorted={handleSort}
+	table$aria-label="Database list"
+>
+	<Head>
+		<Row>
+			<!--
+        Note: whatever you supply to "columnId" is
+        appended with "-status-label" and used as an ID
+        for the hidden label that describes the sort
+        status to screen readers.
+ 
+        You can localize those labels with the
+        "sortAscendingAriaLabel" and
+        "sortDescendingAriaLabel" props on the DataTable.
+      -->
+			<!--Cell numeric columnId="id">
+				<IconButton class="material-icons">arrow_upward</IconButton>
+				<Label>ID</Label>
+			</Cell-->
+			<Cell columnId="Song">
+				<Label>Song</Label>
+				<!-- For non-numeric columns, icon comes second. -->
+				<IconButton class="material-icons">arrow_upward</IconButton>
+			</Cell>
+			<Cell columnId="Artist">
+				<Label>Artist</Label>
+				<IconButton class="material-icons">arrow_upward</IconButton>
+			</Cell>
+			<Cell columnId="Key">
+				<Label>Key</Label>
+				<IconButton class="material-icons">arrow_upward</IconButton>
+			</Cell>
+			<Cell columnId="Type">
+				<Label>Type</Label>
+				<IconButton class="material-icons">arrow_upward</IconButton>
+			</Cell>
+			<!--Cell numeric columnId="Tempo">
+				<IconButton class="material-icons">arrow_upward</IconButton>
+				<Label>Tempo</Label>
+			</Cell-->
+			<!-- You can turn off sorting for a column. 
+			<Cell sortable={false}>Website</Cell>-->
+		</Row>
+	</Head>
+	<Body>
+		{#each filteredItems as item (item.id)}
+			<Row>
+				<!--Cell numeric>{item.id}</Cell-->
+				<Cell class="ellipsis-until-hover"><p>{item.Song}</p></Cell>
+				<Cell class="ellipsis-until-hover"><p>{item.Artist}</p></Cell>
+				<Cell>{item.Key}</Cell>
+				<Cell class="ellipsis-until-hover"><p>{item.Type}</p></Cell>
+				<!--Cell numeric>{item.Tempo}</Cell-->
+			</Row>
+		{/each}
+	</Body>
+</DataTable>
 <p class="mdc-typography--body2">{$t('no_options')}</p>
+
+<style>
+	:global(.ellipsis-until-hover) p {
+		width: 120px;
+		text-overflow: ellipsis;
+		overflow: hidden;
+		white-space: nowrap;
+	}
+	:global(.ellipsis-until-hover:hover) p {
+		overflow: visible;
+		white-space: normal;
+		height: auto; /* just added this line */
+	}
+</style>
