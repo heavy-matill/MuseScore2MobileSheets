@@ -14,4 +14,4 @@ export const homeState = writable({ convertIsDisabled: true, downloadIsDisabled:
 
 export const languageState = writable({ locale: 'en', direction: 'ltr' });
 
-export const dropboxState = writable({ authCode: '', accessToken: '', path: '', dbLink: '', dbBlob: new Blob() })
+export const dropboxState = writable({ authorized: false, path: '', dbLink: '', dbBlob: new Blob})

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { t } from '$lib/i18n/i18n';
+	import {execDB, initDB} from '$lib/database.js';
 	import DataTable, { Head, Body, Row, Cell, Label, SortValue } from '@smui/data-table';
 	import Tooltip, { Wrapper } from '@smui/tooltip';
 	import TextField from '@smui/textfield';
@@ -9,10 +10,11 @@
 
 	import { dropboxState } from '../stores.js';
 
-	import initSqlJs from 'sql.js';
 
-	export let metaData = {};
-	console.log(metaData);
+	import initSqlJs from 'sql.js';
+	var db: any = false;
+
+
 	const mobileSheetKeys = {
 		Artist: 'composer',
 		Composer: 'composer',
@@ -37,29 +39,27 @@
 		'F#/D#m',
 		'C#/A#m'
 	];
-	var mobileSheetsData = {};
+	export var outputMetaData: any = {};
+	export var metaData;
 	for (let key in mobileSheetKeys) {
 		if (key == 'Key') {
-			mobileSheetsData[key] = musicalKeys[7 + metaData[mobileSheetKeys[key]]];
+			outputMetaData[key] = musicalKeys[7 + metaData[mobileSheetKeys[key]]];
 		} else {
-			mobileSheetsData[key] = metaData[mobileSheetKeys[key]];
+			outputMetaData[key] = metaData[mobileSheetKeys[key]];
 		}
 	}
-	const mobileSheetsDataOriginal = Object.assign({}, mobileSheetsData);
+	const mobileSheetsDataOriginal = Object.assign({}, outputMetaData);
 
-	$: $dropboxState.dbBlob, scanDB();
+	$: $dropboxState.dbBlob, onDBBlob();
+	async function onDBBlob() {
+		console.log('initializing DB');
+		initDB(new Uint8Array(await $dropboxState.dbBlob.arrayBuffer())).then((b) => {
+			console.log(db);
+			if (b) scanDB();
+		});
+	}
 	async function scanDB() {
-		const uInt8Array = new Uint8Array(await $dropboxState.dbBlob.arrayBuffer());
-		console.log('scanDB', uInt8Array.length);
-		if (uInt8Array.length) {
-			// sql.js
-			const SQL = await initSqlJs({
-				// Required to load the wasm binary asynchronously. Of course, you can host it wherever you want
-				// You can omit locateFile completely when running in node
-				locateFile: (file) => `https://sql.js.org/dist/${file}`
-			});
-			var db = new SQL.Database(uInt8Array);
-			var contents = db.exec(`SELECT Songs.Title, Songs.Id, 
+		var contents = execDB(`SELECT Songs.Title, Songs.Id, 
 KeySongs.SongId, KeySongs.KeyId,
 Key.Id, Key.Name AS KeyName,
 ArtistsSongs.SongId, ArtistsSongs.ArtistId,
@@ -77,6 +77,7 @@ LEFT JOIN SourceType ON SourceType.Id = SourceTypeSongs.SourceTypeId
 GROUP BY 
     Songs.Id
 `);
+		if ((await contents).length) {
 			console.log('DB:', contents);
 			//var contents = db.exec("SELECT name FROM sqlite_master WHERE type='table';");
 			items = [];
@@ -96,7 +97,9 @@ GROUP BY
 			// assuming arrayBuffer contains the result of the above operation...
 		}
 	}
-	let selected = [];
+	
+	let selectedMeta = [];
+	let selectedDB = [];
 	function noNullString(s) {
 		return s ? String(s) : '';
 	}
@@ -109,15 +112,112 @@ GROUP BY
 		//Tempo: number;
 	}
 	let items: Song[] = [];
-	$: filteredItems = items.filter((item) =>
-		selected.every((key) => {
-			const searchWords = mobileSheetsData[key].split('/').filter((s) => s);
-			return (
-				!searchWords.length ||
-				searchWords.some((s) => item[key].toLowerCase().includes(s.toLowerCase()))
-			);
-		})
+	$: filteredItems = items.filter(
+		(item) =>
+			selectedDB.includes(item.id) ||
+			selectedMeta.every((key) => {
+				const searchWords = outputMetaData[key].split('/').filter((s) => s);
+				return (
+					!searchWords.length ||
+					searchWords.some((s) => item[key].toLowerCase().includes(s.toLowerCase()))
+				);
+			})
 	);
+	$: filteredSelected = selectedDB.filter((s) =>
+		Array.from(filteredItems, (i) => i.id).includes(s)
+	);
+	let prevSelectedDB = [...selectedDB];
+	$: selectedDB, selectionChanged();
+	function selectionChanged() {
+		let added = selectedDB.filter((i) => !prevSelectedDB.includes(i));
+		if (added.length) {
+			//console.log('also add', querySongsWithSamePaths(querySelectedPaths(added)));
+			selectedDB = selectedDB.concat(
+				querySongsWithSamePaths(querySelectedPaths(added)).filter((i) => !selectedDB.includes(i))
+			);
+		}
+		let removed = prevSelectedDB.filter((i) => !selectedDB.includes(i));
+		if (removed.length) {
+			//console.log('also remove', querySongsWithSamePaths(querySelectedPaths(removed)));
+			selectedDB = selectedDB.filter(
+				(i) => !querySongsWithSamePaths(querySelectedPaths(removed)).includes(i)
+			);
+		}
+		//console.log("selectionChanged", prevSelectedDB,selectedDB,"added", added, "removed", removed)
+		prevSelectedDB = [...selectedDB];
+	}
+	$: selectedTypes = querySelectedTypes(filteredSelected);
+	function querySelectedTypes(ids) {
+		try {
+			let contents = execDB(`SELECT SongId, SourceTypeId, 
+SourceType.Id, SourceType.Type AS SourceTypeName
+FROM "SourceTypeSongs" 
+LEFT JOIN SourceType ON SourceType.Id = SourceTypeSongs.SourceTypeId
+ WHERE SongId IN (${ids.join(',')})
+ GROUP BY 
+SourceTypeId`);
+			return Array.from(
+				contents[0].values,
+				(row) => row[contents[0].columns.findIndex((s) => s == 'SourceTypeName')]
+			);
+		} catch {
+			return [];
+		}
+	}
+	$: selectedPaths = querySelectedPaths(filteredSelected);
+	function querySelectedPaths(ids) {
+		try {
+			let contents = execDB(`SELECT Id, SongId, Path
+FROM Files 
+WHERE SongId IN (${ids.join(',')})`);
+			return Array.from(
+				contents[0].values,
+				(row) => row[contents[0].columns.findIndex((s) => s == 'Path')]
+			);
+		} catch {
+			return [];
+		}
+	}
+	function queryNotSelectedSongsWithSamePaths(paths) {
+		try {
+			console.log('queryNotSelectedSongsWithSamePaths', paths);
+			let contents = execDB(`SELECT SongId, Path
+FROM Files 
+WHERE Path IN ("${paths.join('", "')}")`);
+			return Array.from(
+				contents[0].values,
+				(row) => row[contents[0].columns.findIndex((s) => s == 'SongId')]
+			).filter((id) => !filteredSelected.includes(id));
+		} catch {
+			return [];
+		}
+	}
+
+	function querySongsWithSamePaths(paths) {
+		try {
+			console.log('querySongsWithSamePaths', paths);
+			let contents = execDB(`SELECT SongId, Path
+FROM Files 
+WHERE Path IN ("${paths.join('", "')}")`);
+			return Array.from(
+				contents[0].values,
+				(row) => row[contents[0].columns.findIndex((s) => s == 'SongId')]
+			);
+		} catch {
+			return [];
+		}
+	}
+
+	$: allTypes = queryAllTypes(db);
+	function queryAllTypes(database) {
+		try {
+			let contents = database.exec('SELECT Type FROM SourceType');
+			return Array.from(contents[0].values, (row) => row[0]);
+		} catch {
+			return [];
+		}
+	}
+
 	let sort: keyof Song = 'id';
 	let sortDirection: Lowercase<keyof typeof SortValue> = 'ascending';
 
@@ -142,21 +242,21 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 		<Row>
 			<Cell style="text-align:right;">Filter all</Cell>
 			<Cell checkbox>
-				<Checkbox class="material-icons-outlined">filter</Checkbox>
+				<Checkbox />
 			</Cell>
 		</Row>
 	</Head>
 	<Body>
-		{#each Object.entries(mobileSheetsData) as [key, val]}
+		{#each Object.entries(outputMetaData) as [key, val]}
 			<Row>
 				<Cell
-					><TextField bind:value={mobileSheetsData[key]} style="width:100%" label={key}>
+					><TextField bind:value={outputMetaData[key]} style="width:100%" label={key}>
 						<div slot="trailingIcon">
 							{#if key == 'Composer'}
-								{#if mobileSheetsData['Composer'] != mobileSheetsData['Artist']}
+								{#if outputMetaData['Composer'] != outputMetaData['Artist']}
 									<Icon
 										on:click={() => {
-											mobileSheetsData['Composer'] = mobileSheetsData['Artist'];
+											outputMetaData['Composer'] = outputMetaData['Artist'];
 										}}
 										style="margin-right:10px"
 										class="material-icons-outlined"
@@ -168,10 +268,10 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 									>
 								{/if}
 							{/if}
-							{#if mobileSheetsData[key]}
+							{#if outputMetaData[key]}
 								<Icon
 									on:click={() => {
-										mobileSheetsData[key] = '';
+										outputMetaData[key] = '';
 									}}
 									style="margin-right:10px;"
 									class="material-icons-outlined"
@@ -182,10 +282,10 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 									>backspace</Icon
 								>
 							{/if}
-							{#if mobileSheetsData[key] != mobileSheetsDataOriginal[key]}
+							{#if outputMetaData[key] != mobileSheetsDataOriginal[key]}
 								<Icon
 									on:click={() => {
-										mobileSheetsData[key] = mobileSheetsDataOriginal[key];
+										outputMetaData[key] = mobileSheetsDataOriginal[key];
 									}}
 									class="material-icons-outlined"
 									>replay
@@ -198,7 +298,7 @@ Create a new entry based on parsed Metadata or use it to filter database for exi
 				</Cell>
 				{#if ['Artist', 'Song', 'Key'].indexOf(key) > -1}
 					<Cell checkbox>
-						<Checkbox bind:group={selected} value={key} valueKey={key} />
+						<Checkbox bind:group={selectedMeta} value={key} valueKey={key} />
 					</Cell>
 				{:else}
 					<Cell />
@@ -232,6 +332,9 @@ Filter Database by checking the rows above.
 				<IconButton class="material-icons">arrow_upward</IconButton>
 				<Label>ID</Label>
 			</Cell-->
+			<Cell checkbox>
+				<Checkbox />
+			</Cell>
 			<Cell columnId="Song">
 				<Label>Song</Label>
 				<!-- For non-numeric columns, icon comes second. -->
@@ -261,12 +364,16 @@ Filter Database by checking the rows above.
 		{#each filteredItems as item (item.id)}
 			<Row
 				on:click={() => {
-					Object.keys(mobileSheetsData).forEach((key) => {
-						mobileSheetsData[key] = item[key] ?? '';
+					Object.keys(outputMetaData).forEach((key) => {
+						outputMetaData[key] = item[key] ?? '';
 					});
 				}}
 			>
 				<!--Cell numeric>{item.id}</Cell-->
+
+				<Cell checkbox>
+					<Checkbox bind:group={selectedDB} value={item.id} valueKey={'id'} />
+				</Cell>
 				<Wrapper>
 					<Cell class="ellipsis-until-hover"><p>{item.Song}</p></Cell>
 					{#if item.Song.length > 20}<Tooltip yPos="below">{item.Song}.</Tooltip>{/if}
@@ -285,6 +392,11 @@ Filter Database by checking the rows above.
 		{/each}
 	</Body>
 </DataTable>
+{selectedDB}
+{filteredSelected}
+{selectedTypes}
+{allTypes}
+{selectedPaths}
 <p class="mdc-typography--body2">{$t('no_options')}</p>
 
 <style>

@@ -27,10 +27,18 @@
 	import MobileSheetsOptions from '../components/mobileSheetsOptions.svelte';
 	import WebMscore from 'webmscore';
 	import { t } from '$lib/i18n/i18n';
+	import { uploadFile } from '$lib/dropbox';
 
+	import PDFMerger from 'pdf-merger-js/browser';
+	WebMscore.setLogLevel(2);
 	let scores: WebMscore[] = [];
+	WebMscore.version().then((v) => {
+		console.log('version', v);
+	});
+	let metaDataFinal;
 	let titles: String[] = [];
 	let blob: Blob = new Blob();
+	let buf: ArrayBuffer = new ArrayBuffer(0);
 	let zip = new JSZip();
 	//@ts-ignore
 	let files: FileWithHandle[] = [blob];
@@ -41,8 +49,10 @@
 	//@ts-ignore
 	let msczMetadatas: String[];
 	// $: msczMetadatas = [$t('no_file_metadata')];
-	let fileNames: String[] = [$t('no_file_loaded')];
-	$: fileNames = isFileLoaded === false ? [$t('no_file_loaded')] : fileNames;
+	let inputFileNames: String[] = [$t('no_file_loaded')];
+	$: inputFileNames = isFileLoaded === false ? [$t('no_file_loaded')] : inputFileNames;
+	let outputFileBlobs: Blob[] = [];
+	let outputFileNames: String[] = [];
 	let errorMessage = $t('unknown_error');
 	let npages: number[] = [1];
 	let progress = 0;
@@ -260,7 +270,7 @@
 		scores = [];
 		titles = [];
 		msczMetadatas = [];
-		fileNames = [];
+		inputFileNames = [];
 		let tempScores = [];
 
 		batchMode = inputFiles.length > 1 ? true : false;
@@ -269,6 +279,7 @@
 
 		for (let [index, blobs] of inputFiles.entries()) {
 			let fileExt = blobs.name.substring(blobs.name.lastIndexOf('.') + 1);
+			console.log(fileExt);
 			if (fileExt === 'mid') {
 				fileExt = 'midi';
 			}
@@ -295,7 +306,7 @@
 				return;
 			}
 
-			fileNames = [...fileNames, blobs.name];
+			inputFileNames = [...inputFileNames, blobs.name];
 			isFileLoaded = true;
 
 			WebMscore.ready.then(async () => {
@@ -350,419 +361,59 @@
 	}
 
 	async function saveFile() {
-		if (!batchMode) {
-			let fileExtension = '.';
-			let partsLength = selected.length;
-			let partsPages: number[] = [];
-			$homeState.convertIsDisabled = true;
-			$homeState.downloadIsDisabled = true;
-			convertIsProcessing = true;
-			isZipping = false;
-			progress = 0;
-			zip = new JSZip();
+		outputFileBlobs = [];
+		let fileExtension = '.';
+		let partsLength = selected.length;
+		let partsPages: number[] = [];
+		$homeState.convertIsDisabled = true;
+		$homeState.downloadIsDisabled = true;
+		convertIsProcessing = true;
+		isZipping = false;
+		progress = 0;
 
-			if (exportType === 'PNG' || exportType === 'SVG') {
-				selected.forEach(async (excerptId, index) => {
-					scores[0].setExcerptId(excerptId);
-					partsPages.push(await scores[0].npages());
+		console.log('scores', scores);
+		console.log('selected', selected);
+		selected.forEach(async (excerptId, index) => {
+			console.log('excerptId,index', excerptId, index);
+			scores[0].setExcerptId(excerptId);
 
-					if (index === partsLength - 1) {
-						let pagesLength = partsPages.reduce((a, b) => a + b, 0);
-
-						selected.forEach(async (excerptIdNew, indexNew) => {
-							scores[0].setExcerptId(excerptIdNew);
-							[...Array(partsPages[indexNew]).keys()].forEach(async (_, i) => {
-								if (exportType === 'PNG') {
-									blob = await new Blob(
-										[
-											await (
-												await scores[0].savePng(
-													i,
-													$exportOptions.drawPageBackground,
-													$exportOptions.transparent
-												)
-											).buffer
-										],
-										{
-											type: 'image/png'
-										}
-									);
-									fileExtension = '.png';
-								} else if (exportType === 'SVG') {
-									blob = await new Blob(
-										[await scores[0].saveSvg(i, $exportOptions.drawPageBackground)],
-										{
-											type: 'image/svg+xml'
-										}
-									);
-									fileExtension = '.svg';
-								}
-
-								if (blob.size !== 0) {
-									let fileSuffix =
-										'-' +
-										items[items.findIndex((part) => part.id === excerptIdNew)].title +
-										'-' +
-										(i + 1).toString();
-									if (excerptIdNew === -1) {
-										fileSuffix = '-' + (i + 1).toString();
-									}
-									zip.file(
-										fileNames[0].substring(0, fileNames[0].lastIndexOf('.')) +
-											fileSuffix +
-											fileExtension,
-										blob
-									);
-									progress += 1 / pagesLength;
-								}
-
-								if (indexNew === partsLength - 1 && i === partsPages[indexNew] - 1) {
-									progress = 1;
-									isZipping = true;
-									blob = await zip.generateAsync({ type: 'blob' }).then((zipped) => {
-										$homeState.downloadIsDisabled = false;
-										convertIsProcessing = false;
-										return zipped;
-									});
-								}
-							});
-						});
-					}
-				});
-			} else {
-				selected.forEach(async (excerptId, index) => {
-					scores[0].setExcerptId(excerptId);
-					switch (exportType) {
-						case 'PDF':
-							blob = await new Blob([await (await scores[0].savePdf()).buffer], {
-								type: 'application/pdf'
-							});
-							fileExtension = '.pdf';
-							break;
-						case 'MP3':
-							blob = await new Blob([await (await scores[0].saveAudio('mp3')).buffer], {
-								type: 'audio/mpeg'
-							});
-							fileExtension = '.mp3';
-							break;
-						case 'WAV':
-							blob = await new Blob([await (await scores[0].saveAudio('wav')).buffer], {
-								type: 'audio/vnd.wave'
-							});
-							fileExtension = '.wav';
-							break;
-						case 'FLAC':
-							blob = await new Blob([await (await scores[0].saveAudio('flac')).buffer], {
-								type: 'audio/flac'
-							});
-							fileExtension = '.flac';
-							break;
-						case 'OGG':
-							blob = await new Blob([await (await scores[0].saveAudio('ogg')).buffer], {
-								type: 'audio/ogg'
-							});
-							fileExtension = '.ogg';
-							break;
-						case 'MIDI':
-							blob = await new Blob(
-								[
-									await (
-										await scores[0].saveMidi(
-											$exportOptions.midiExpandRepeats,
-											$exportOptions.exportRPNs
-										)
-									).buffer
-								],
-								{
-									type: 'audio/midi'
-								}
-							);
-							fileExtension = '.mid';
-							break;
-						case 'MusicXML':
-							if ($exportOptions.compress) {
-								blob = await new Blob([await (await scores[0].saveMxl()).buffer], {
-									type: 'application/vnd.recordare.musicxml'
-								});
-								fileExtension = '.mxl';
-							} else {
-								if ($exportOptions.outdated) {
-									blob = await new Blob([await await scores[0].saveXml()], {
-										type: 'application/vnd.recordare.musicxml+xml'
-									});
-									fileExtension = '.xml';
-								} else {
-									blob = await new Blob([await await scores[0].saveXml()], {
-										type: 'application/vnd.recordare.musicxml+xml'
-									});
-									fileExtension = '.musicxml';
-								}
-							}
-							break;
-						case 'MSCZ':
-							blob = await new Blob([await (await scores[0].saveMsc('mscz')).buffer], {
-								type: 'application/x-musescore'
-							});
-							fileExtension = '.mscz';
-							break;
-						case 'MSCX':
-							blob = await new Blob([await (await scores[0].saveMsc('mscx')).buffer], {
-								type: 'application/x-musescore+xml'
-							});
-							fileExtension = '.mscx';
-							break;
-						case 'Positions':
-							blob = await new Blob(
-								[await await scores[0].savePositions($exportOptions.ofSegments)],
-								{
-									type: 'application/json'
-								}
-							);
-							fileExtension = '.json';
-							break;
-						case 'Metadata':
-							blob = await new Blob([await await scores[0].saveMetadata()], {
-								type: 'application/json'
-							});
-							fileExtension = '.json';
-							break;
-						case 'MobileSheets':
-							blob = await new Blob([await (await scores[0].savePdf()).buffer], {
-								type: 'application/pdf'
-							});
-							fileExtension = '.pdf';
-							break;
-							blob = await new Blob([await await scores[0].saveMetadata()], {
-								type: 'application/json'
-							});
-							fileExtension = '.json';
-							break;
-						default:
-							blob = new Blob();
-							errorMessage = $t('invalid_export_target_error');
-							loadingSnackbar.open();
-							return;
-					}
-
-					if (blob.size !== 0) {
-						let fileSuffix = '-' + items[items.findIndex((part) => part.id === excerptId)].title;
-						if (excerptId === -1) {
-							fileSuffix = '';
-						}
-						zip.file(
-							fileNames[0].substring(0, fileNames[0].lastIndexOf('.')) + fileSuffix + fileExtension,
-							blob
-						);
-						progress += 1 / partsLength;
-					}
-
-					if (index === partsLength - 1) {
-						progress = 1;
-						isZipping = true;
-						blob = await zip.generateAsync({ type: 'blob' }).then((zipped) => {
-							$homeState.downloadIsDisabled = false;
-							convertIsProcessing = false;
-							return zipped;
-						});
-					}
-				});
+			fileExtension = '.pdf';
+			let fileSuffix = '-' + items[items.findIndex((part) => part.id === excerptId)].title;
+			if (excerptId === -1) {
+				fileSuffix = '';
 			}
-		} else {
-			let fileExtension = '.';
-			let scoresLength = scores.length;
-			let scoresPages: number[] = [];
-			$homeState.convertIsDisabled = true;
-			$homeState.downloadIsDisabled = true;
-			convertIsProcessing = true;
-			isZipping = false;
-			progress = 0;
-			zip = new JSZip();
+			let outputFileName =
+				inputFileNames[0].substring(0, inputFileNames[0].lastIndexOf('.')) +
+				fileSuffix +
+				fileExtension;
+			outputFileNames.push(outputFileName);
 
-			if (exportType === 'PNG' || exportType === 'SVG') {
-				for (let [index, score] of scores.entries()) {
-					scoresPages[index] = await score.npages();
+			buf = await (await scores[0].savePdf()).buffer;
+			let result = await uploadFile(
+				buf,
+				`/MobileSheets/${metaDataFinal['Artist']}/${metaDataFinal['Song']}_${metaDataFinal['Key']}/${outputFileName}`.replace(
+					/[^a-zA-Z0-9-_/\.]/g,
+					'_'
+				)
+			);
+			console.log(result);
+			/*blob = await new Blob([await (await scores[0].savePdf()).buffer], {
+				type: 'application/pdf'
+			});*/
 
-					if (index === scoresLength - 1) {
-						let pagesLength = scoresPages.reduce((a, b) => a + b, 0);
-
-						for (let [indexNew, scoreNew] of scores.entries()) {
-							for (let i of [...Array(scoresPages[indexNew]).keys()]) {
-								if (exportType === 'PNG') {
-									blob = await new Blob(
-										[
-											await (
-												await scoreNew.savePng(
-													i,
-													$exportOptions.drawPageBackground,
-													$exportOptions.transparent
-												)
-											).buffer
-										],
-										{
-											type: 'image/png'
-										}
-									);
-									fileExtension = '.png';
-								} else if (exportType === 'SVG') {
-									blob = await new Blob(
-										[await scoreNew.saveSvg(i, $exportOptions.drawPageBackground)],
-										{
-											type: 'image/svg+xml'
-										}
-									);
-									fileExtension = '.svg';
-								}
-
-								if (blob.size !== 0) {
-									let fileSuffix = '-' + (i + 1).toString();
-									zip.file(
-										fileNames[indexNew].substring(0, fileNames[indexNew].lastIndexOf('.')) +
-											fileSuffix +
-											fileExtension,
-										blob
-									);
-									progress += 1 / pagesLength;
-								}
-
-								if (indexNew === scoresLength - 1 && i === scoresPages[indexNew] - 1) {
-									progress = 1;
-									isZipping = true;
-									blob = await zip.generateAsync({ type: 'blob' }).then((zipped) => {
-										$homeState.downloadIsDisabled = false;
-										convertIsProcessing = false;
-										return zipped;
-									});
-								}
-							}
-						}
-					}
-				}
-			} else {
-				for (let [index, score] of scores.entries()) {
-					switch (exportType) {
-						case 'PDF':
-							blob = await new Blob([await (await score.savePdf()).buffer], {
-								type: 'application/pdf'
-							});
-							fileExtension = '.pdf';
-							break;
-						case 'MP3':
-							blob = await new Blob([await (await score.saveAudio('mp3')).buffer], {
-								type: 'audio/mpeg'
-							});
-							fileExtension = '.mp3';
-							break;
-						case 'WAV':
-							blob = await new Blob([await (await score.saveAudio('wav')).buffer], {
-								type: 'audio/vnd.wave'
-							});
-							fileExtension = '.wav';
-							break;
-						case 'FLAC':
-							blob = await new Blob([await (await score.saveAudio('flac')).buffer], {
-								type: 'audio/flac'
-							});
-							fileExtension = '.flac';
-							break;
-						case 'OGG':
-							blob = await new Blob([await (await score.saveAudio('ogg')).buffer], {
-								type: 'audio/ogg'
-							});
-							fileExtension = '.ogg';
-							break;
-						case 'MIDI':
-							blob = await new Blob(
-								[
-									await (
-										await score.saveMidi(
-											$exportOptions.midiExpandRepeats,
-											$exportOptions.exportRPNs
-										)
-									).buffer
-								],
-								{
-									type: 'audio/midi'
-								}
-							);
-							fileExtension = '.mid';
-							break;
-						case 'MusicXML':
-							if ($exportOptions.compress) {
-								blob = await new Blob([await (await score.saveMxl()).buffer], {
-									type: 'application/vnd.recordare.musicxml'
-								});
-								fileExtension = '.mxl';
-							} else {
-								if ($exportOptions.outdated) {
-									blob = await new Blob([await await score.saveXml()], {
-										type: 'application/vnd.recordare.musicxml+xml'
-									});
-									fileExtension = '.xml';
-								} else {
-									blob = await new Blob([await await score.saveXml()], {
-										type: 'application/vnd.recordare.musicxml+xml'
-									});
-									fileExtension = '.musicxml';
-								}
-							}
-							break;
-						case 'MSCZ':
-							blob = await new Blob([await (await score.saveMsc('mscz')).buffer], {
-								type: 'application/x-musescore'
-							});
-							fileExtension = '.mscz';
-							break;
-						case 'MSCX':
-							blob = await new Blob([await (await score.saveMsc('mscx')).buffer], {
-								type: 'application/x-musescore+xml'
-							});
-							fileExtension = '.mscx';
-							break;
-						case 'Positions':
-							blob = await new Blob([await await score.savePositions($exportOptions.ofSegments)], {
-								type: 'application/json'
-							});
-							fileExtension = '.json';
-							break;
-						case 'Metadata':
-							blob = await new Blob([await await score.saveMetadata()], {
-								type: 'application/json'
-							});
-							fileExtension = '.json';
-							break;
-						case 'MobileSheets':
-							blob = await new Blob([await await score.saveMetadata()], {
-								type: 'application/json'
-							});
-							fileExtension = '.json';
-							break;
-						default:
-							blob = new Blob();
-							errorMessage = $t('invalid_export_target_error');
-							loadingSnackbar.open();
-							return;
-					}
-
-					if (blob.size !== 0) {
-						zip.file(
-							fileNames[index].substring(0, fileNames[index].lastIndexOf('.')) + fileExtension,
-							blob
-						);
-						progress += 1 / scoresLength;
-					}
-
-					if (index === scoresLength - 1) {
-						progress = 1;
-						isZipping = true;
-						blob = await zip.generateAsync({ type: 'blob' }).then((zipped) => {
-							$homeState.downloadIsDisabled = false;
-							convertIsProcessing = false;
-							return zipped;
-						});
-					}
-				}
+			/*if (blob.size !== 0) {
+				outputFileBlobs.push(blob);
+				
+				//console.log(outputFileNames);
+				//console.log(outputFileBlobs);
+			}*/
+			progress += 1 / partsLength;
+			if (index === partsLength - 1) {
 			}
-		}
+		});
+
+
+		
 	}
 
 	// make `handleUploads` globally available
@@ -860,13 +511,13 @@
 		{#if !fileIsLoading}
 			{#if !convertIsProcessing}
 				<p class="mdc-typography--subtitle1">
-					{#each fileNames as fileName}
+					{#each inputFileNames as fileName}
 						{fileName}<br />
 					{/each}
 				</p>
 			{:else}
 				<p class="mdc-typography--subtitle1" style="margin-inline: 0px; margin-block: 12px 16px;">
-					{#each fileNames as fileName}
+					{#each inputFileNames as fileName}
 						{fileName}<br />
 					{/each}
 				</p>
@@ -880,10 +531,26 @@
 	</div>
 	{#if !optionsAreDisabled}
 		<div class="options">
+			<div class="fileOptions">
+				<Card class="fileOption" variant="outlined" style="flex: 1;">
+					<Content class="mdc-typography--subtitle2">{$t('export_options')}</Content>
+					<div class="optionsRoot">
+						{#if exportType === 'MobileSheets'}
+							<MobileSheetsOptions
+								bind:outputMetaData={metaDataFinal}
+								metaData={JSON.parse(msczMetadatas.toString())}
+							/>
+						{:else}
+							<p class="mdc-typography--body2">{$t('invalid_export_target_error')}</p>
+						{/if}
+					</div>
+					End of Card
+				</Card>
+			</div>
 			{#if !batchMode}
 				<div class="partOptions">
 					<Card variant="outlined" style="flex: 1;">
-						<Content class="mdc-typography--subtitle2">{$t('what_to_export')}</Content>
+						<Content class="mdc-typography--subtitle2">{$t('what_to_export')} S</Content>
 						<List checkList>
 							{#each items as item}
 								<Item>
@@ -900,47 +567,10 @@
 								><Label>{$t('clear_selection_label')}</Label></Button
 							>
 						</Group>
+						End of selection Card
 					</Card>
 				</div>
 			{/if}
-			<div class="fileOptions">
-				<Card class="fileOption" variant="outlined" style="flex: 1;">
-					<Content class="mdc-typography--subtitle2">{$t('export_options')}</Content>
-					<div class="optionsRoot">
-						{#if exportType === 'PDF'}
-							<PdfOptions />
-						{:else if exportType === 'PNG'}
-							<PngOptions />
-						{:else if exportType === 'SVG'}
-							<SvgOptions />
-						{:else if exportType === 'MP3'}
-							<Mp3Options />
-						{:else if exportType === 'WAV'}
-							<WavOptions />
-						{:else if exportType === 'FLAC'}
-							<FlacOptions />
-						{:else if exportType === 'OGG'}
-							<OggOptions />
-						{:else if exportType === 'MIDI'}
-							<MidiOptions />
-						{:else if exportType === 'MusicXML'}
-							<MusicXmlOptions />
-						{:else if exportType === 'MSCZ'}
-							<MsczOptions />
-						{:else if exportType === 'MSCX'}
-							<MscxOptions />
-						{:else if exportType === 'Positions'}
-							<PositionsOptions />
-						{:else if exportType === 'Metadata'}
-							<MetadataOptions />
-						{:else if exportType === 'MobileSheets'}
-							<MobileSheetsOptions metaData={JSON.parse(msczMetadatas.toString())} />
-						{:else}
-							<p class="mdc-typography--body2">{$t('invalid_export_target_error')}</p>
-						{/if}
-					</div>
-				</Card>
-			</div>
 		</div>
 	{/if}
 </div>
