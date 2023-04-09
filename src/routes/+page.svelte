@@ -28,6 +28,7 @@
 	import WebMscore from 'webmscore';
 	import { t } from '$lib/i18n/i18n';
 	import { uploadFile } from '$lib/dropbox';
+	import { createSong, getDBBuffer } from '$lib/database';
 
 	import PDFMerger from 'pdf-merger-js/browser';
 	WebMscore.setLogLevel(2);
@@ -52,7 +53,7 @@
 	let inputFileNames: String[] = [$t('no_file_loaded')];
 	$: inputFileNames = isFileLoaded === false ? [$t('no_file_loaded')] : inputFileNames;
 	let outputFileBlobs: Blob[] = [];
-	let outputFileNames: String[] = [];
+	let filePaths: String[] = [];
 	let errorMessage = $t('unknown_error');
 	let npages: number[] = [1];
 	let progress = 0;
@@ -373,8 +374,7 @@
 
 		console.log('scores', scores);
 		console.log('selected', selected);
-		selected.forEach(async (excerptId, index) => {
-			console.log('excerptId,index', excerptId, index);
+		for (let excerptId of selected) {
 			scores[0].setExcerptId(excerptId);
 
 			fileExtension = '.pdf';
@@ -386,16 +386,22 @@
 				inputFileNames[0].substring(0, inputFileNames[0].lastIndexOf('.')) +
 				fileSuffix +
 				fileExtension;
-			outputFileNames.push(outputFileName);
+			let filePath = Array.from(
+				[
+					'',
+					`MobileSheets`,
+					metaDataFinal['Artist'],
+					`${metaDataFinal['Song']}_${metaDataFinal['Key']}`,
+					outputFileName
+				],
+				(s) => s.replace(/[\\/:"*?<>|]/g, '_')
+			).join('/');
+			console.log(filePath);
+			filePaths.push(filePath);
+			partsPages.push(await scores[0].npages());
 
 			buf = await (await scores[0].savePdf()).buffer;
-			let result = await uploadFile(
-				buf,
-				`/MobileSheets/${metaDataFinal['Artist']}/${metaDataFinal['Song']}_${metaDataFinal['Key']}/${outputFileName}`.replace(
-					/[^a-zA-Z0-9-_/\.]/g,
-					'_'
-				)
-			);
+			let result = await uploadFile(buf, filePath);
 			console.log(result);
 			/*blob = await new Blob([await (await scores[0].savePdf()).buffer], {
 				type: 'application/pdf'
@@ -408,12 +414,17 @@
 				//console.log(outputFileBlobs);
 			}*/
 			progress += 1 / partsLength;
-			if (index === partsLength - 1) {
-			}
-		});
+		}
 
-
-		
+		createSong(
+			metaDataFinal['Song'],
+			metaDataFinal['Artist'],
+			metaDataFinal['Key'],
+			filePaths,
+			partsPages
+		);
+		await uploadFile(getDBBuffer(), `/MobileSheets/mobilesheets.db`);
+		progress = 1;
 	}
 
 	// make `handleUploads` globally available
