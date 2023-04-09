@@ -107,11 +107,6 @@ export async function uploadFile(buffer, path) {
     //@ts-ignore
     const result = await dropboxClient.filesUploadSessionFinish({ cursor: cursor, commit: commit, contents: {} });
     return result
-    return await dropboxClient.filesUploadSessionFinish({
-        commit: { path: path, mode: 'overwrite' },
-        contents: {}
-    });
-
 }
 
 function browseDropbox(newAccessToken) {
