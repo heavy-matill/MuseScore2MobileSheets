@@ -10,7 +10,7 @@ export const exportOptions = writable({
 	ofSegments: false
 });
 
-export const homeState = writable({ convertIsDisabled: true, downloadIsDisabled: true });
+export const homeState = writable({ importIsDisabled: true, downloadIsDisabled: true });
 
 export const languageState = writable({ locale: 'en', direction: 'ltr' });
 

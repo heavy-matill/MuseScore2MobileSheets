@@ -10,37 +10,18 @@
 	import Snackbar, { Actions } from '@smui/snackbar';
 	import IconButton from '@smui/icon-button';
 	import { fileOpen } from 'browser-fs-access';
-	import JSZip from 'jszip';
-	import PdfOptions from '../components/pdfOptions.svelte';
-	import PngOptions from '../components/pngOptions.svelte';
-	import SvgOptions from '../components/svgOptions.svelte';
-	import Mp3Options from '../components/mp3Options.svelte';
-	import WavOptions from '../components/wavOptions.svelte';
-	import FlacOptions from '../components/flacOptions.svelte';
-	import OggOptions from '../components/oggOptions.svelte';
-	import MidiOptions from '../components/midiOptions.svelte';
-	import MusicXmlOptions from '../components/musicXmlOptions.svelte';
-	import MsczOptions from '../components/msczOptions.svelte';
-	import MscxOptions from '../components/mscxOptions.svelte';
-	import PositionsOptions from '../components/positionsOptions.svelte';
-	import MetadataOptions from '../components/metadataOptions.svelte';
 	import MobileSheetsOptions from '../components/mobileSheetsOptions.svelte';
 	import WebMscore from 'webmscore';
 	import { t } from '$lib/i18n/i18n';
 	import { uploadFile } from '$lib/dropbox';
 	import { createSong, getDBBuffer } from '$lib/database';
 
-	import PDFMerger from 'pdf-merger-js/browser';
 	WebMscore.setLogLevel(2);
 	let scores: WebMscore[] = [];
-	WebMscore.version().then((v) => {
-		console.log('version', v);
-	});
 	let metaDataFinal;
 	let titles: String[] = [];
 	let blob: Blob = new Blob();
 	let buf: ArrayBuffer = new ArrayBuffer(0);
-	let zip = new JSZip();
 	//@ts-ignore
 	let files: FileWithHandle[] = [blob];
 	// $: files = [blob];
@@ -52,29 +33,11 @@
 	// $: msczMetadatas = [$t('no_file_metadata')];
 	let inputFileNames: String[] = [$t('no_file_loaded')];
 	$: inputFileNames = isFileLoaded === false ? [$t('no_file_loaded')] : inputFileNames;
-	let outputFileBlobs: Blob[] = [];
 	let filePaths: String[] = [];
 	let errorMessage = $t('unknown_error');
 	let npages: number[] = [1];
 	let progress = 0;
 	let loadingSnackbar;
-	let exportType = 'MobileSheets';
-	let exportTypes = [
-		'PDF',
-		'PNG',
-		'SVG',
-		'MP3',
-		'WAV',
-		'FLAC',
-		'OGG',
-		'MIDI',
-		'MusicXML',
-		'MSCZ',
-		'MSCX',
-		'Positions',
-		'Metadata',
-		'MobileSheets'
-	];
 	let items = [
 		{
 			id: -1,
@@ -96,7 +59,7 @@
 		}
 	];
 	$: items[items.findIndex((part) => part.id === -1)].title = $t('full_score');
-	let selected = [items[items.findIndex((part) => part.id === -1)].id];
+	let selectedParts = [items[items.findIndex((part) => part.id === -1)].id];
 
 	let isFileLoaded: boolean = false;
 	let batchMode: boolean = false;
@@ -106,58 +69,18 @@
 	let optionsAreDisabled: boolean = true;
 	let fileIsLoading: boolean = false;
 	let convertIsProcessing: boolean = false;
-	let isZipping: boolean = false;
 
-	function updateConvertDisabled() {
-		// console.log(exportTypes);
-		// console.log(exportType);
-		// console.log(oldExportTypeIndex);
-		// console.log(exportTypes.indexOf(exportType));
-		// oldExportTypeIndex = exportTypes.indexOf(exportType);
-		// console.log(exportTypes);
-		// console.log(exportType);
-		// console.log(oldExportTypeIndex);
-		// console.log(exportTypes.indexOf(exportType));
-		if (
-			files[0].size > 0 &&
-			!(files.length === 1 && files[0].size === 0 && files[0].type === '') &&
-			exportType !== '' &&
-			selected.length > 0 &&
-			exportTypes.includes(exportType) &&
-			!fileIsLoading
-		) {
-			$homeState.convertIsDisabled = false;
-			optionsAreDisabled = false;
-		} else {
-			$homeState.convertIsDisabled = true;
-		}
-		$homeState.downloadIsDisabled = true;
+	function selectAllParts() {
+		selectedParts = items.map((item) => item.id);
 	}
 
-	function updateExportType() {
-		if (exportType == 'MobileSheets') {
-			console.log('selected', exportType);
-			if (msczMetadatas) {
-				console.log(JSON.parse(msczMetadatas.toString()));
-			}
-		}
-		updateConvertDisabled();
-	}
-
-	//@ts-ignore
-	$: selected, updateExportType();
-
-	function selectAll() {
-		selected = items.map((item) => item.id);
-	}
-
-	function clearSelection() {
-		selected = [];
+	function clearPartsSelection() {
+		selectedParts = [];
 	}
 
 	async function handleMscz() {
-		oldConvertIsDisabled = $homeState.convertIsDisabled;
-		$homeState.convertIsDisabled = true;
+		oldConvertIsDisabled = $homeState.importIsDisabled;
+		$homeState.importIsDisabled = true;
 		//@ts-ignore
 		files = await fileOpen([
 			{
@@ -256,7 +179,7 @@
 			// 	description: $t('musescore_backup_files')
 			// }
 		]).catch(() => {
-			$homeState.convertIsDisabled = oldConvertIsDisabled;
+			$homeState.importIsDisabled = oldConvertIsDisabled;
 			return oldFiles;
 		});
 
@@ -264,10 +187,10 @@
 			return;
 		}
 
-		return handleUploads(files);
+		return handleFileSelection(files);
 	}
 
-	async function handleUploads(inputFiles: File[]) {
+	async function handleFileSelection(inputFiles: File[]) {
 		scores = [];
 		titles = [];
 		msczMetadatas = [];
@@ -350,31 +273,25 @@
 						.sort((a, b) => a.scoreIndex - b.scoreIndex)
 						.map((value) => value.scoreBlob);
 					fileIsLoading = false;
-					if (exportType !== '') {
-						$homeState.convertIsDisabled = false;
-						optionsAreDisabled = false;
-					} else {
-						$homeState.convertIsDisabled = true;
+					optionsAreDisabled = false;
+					$homeState.importIsDisabled = false;
 					}
-				}
 			});
 		}
 	}
 
-	async function saveFile() {
-		outputFileBlobs = [];
+	async function importFiles() {
 		let fileExtension = '.';
-		let partsLength = selected.length;
+		let partsLength = selectedParts.length;
 		let partsPages: number[] = [];
-		$homeState.convertIsDisabled = true;
+		$homeState.importIsDisabled = true;
 		$homeState.downloadIsDisabled = true;
 		convertIsProcessing = true;
-		isZipping = false;
 		progress = 0;
 
 		console.log('scores', scores);
-		console.log('selected', selected);
-		for (let excerptId of selected) {
+		console.log('selected', selectedParts);
+		for (let excerptId of selectedParts) {
 			scores[0].setExcerptId(excerptId);
 
 			fileExtension = '.pdf';
@@ -403,16 +320,6 @@
 			buf = await (await scores[0].savePdf()).buffer;
 			let result = await uploadFile(buf, filePath);
 			console.log(result);
-			/*blob = await new Blob([await (await scores[0].savePdf()).buffer], {
-				type: 'application/pdf'
-			});*/
-
-			/*if (blob.size !== 0) {
-				outputFileBlobs.push(blob);
-				
-				//console.log(outputFileNames);
-				//console.log(outputFileBlobs);
-			}*/
 			progress += 1 / partsLength;
 		}
 
@@ -429,11 +336,11 @@
 
 	// make `handleUploads` globally available
 	// TODO: use `globalThis`
-	window['handleUploads'] = handleUploads;
+	window['handleUploads'] = handleFileSelection;
 
 	// have preloaded files
 	if (window?.['preloadedUploads']?.length > 0) {
-		handleUploads(window['preloadedUploads']);
+		handleFileSelection(window['preloadedUploads']);
 	}
 	window['preloadedUploads'] = [] as File[];
 </script>
@@ -451,23 +358,6 @@
 			<Icon class="material-icons-outlined">file_upload</Icon>
 			<Label>{$t('select_files_label')}</Label>
 		</Button>
-		<Select
-			style="margin-inline: 0px; margin-block: 8px 0px;"
-			variant="outlined"
-			bind:value={exportType}
-			on:MDCSelect:change={updateConvertDisabled}
-			label={$t('export_to_label')}
-			required
-		>
-			{#each [...exportTypes] as type (exportTypes.indexOf(type))}
-				<!-- 11 is the index of exportTypes where translatable export types begin -->
-				{#if exportTypes.indexOf(type) < 11}
-					<Option value={type}>{type}</Option>
-				{:else}
-					<Option value={type}>{$t(type.charAt(0).toLowerCase() + type.slice(1))}</Option>
-				{/if}
-			{/each}
-		</Select>
 		<div class="buttons">
 			<div
 				style="margin-inline: 0px 4px; margin-block: 8px 0px; display: flex; flex-flow: column nowrap; flex: 1;"
@@ -475,8 +365,8 @@
 				<Button
 					style="padding: 0;"
 					variant="raised"
-					bind:disabled={$homeState.convertIsDisabled}
-					on:click={saveFile}
+					bind:disabled={$homeState.importIsDisabled}
+					on:click={importFiles}
 				>
 					{#if $languageState.direction === 'rtl'}
 						<Icon class="material-icons-outlined" style="transform: scaleX(-1);">swap_horiz</Icon>
@@ -486,38 +376,9 @@
 					<Label>{$t('convert_label')}</Label>
 				</Button>
 				{#if convertIsProcessing}
-					{#if !isZipping}
-						<LinearProgress {progress} buffer={0} />
-					{:else}
-						<LinearProgress indeterminate />
-					{/if}
+					<LinearProgress {progress} buffer={0} />
 				{/if}
 			</div>
-			{#if $homeState.downloadIsDisabled}
-				<Button
-					class="button-shaped-round"
-					style="padding: 0; margin-inline: 4px 0px; margin-block: 8px 0px; flex: 1;"
-					disabled
-					color="secondary"
-					variant="raised"
-					download={titles.join(', ') + '.zip'}
-				>
-					<Icon class="material-icons-outlined">file_download</Icon>
-					<Label>{$t('download_label')}</Label>
-				</Button>
-			{:else}
-				<Button
-					class="button-shaped-round"
-					style="padding: 0; margin-inline: 4px 0px; margin-block: 8px 0px; flex: 1;"
-					color="secondary"
-					variant="raised"
-					href={window.URL.createObjectURL(blob)}
-					download={titles.join(', ') + '.zip'}
-				>
-					<Icon class="material-icons-outlined">file_download</Icon>
-					<Label>{$t('download_label')}</Label>
-				</Button>
-			{/if}
 		</div>
 		{#if !fileIsLoading}
 			{#if !convertIsProcessing}
@@ -546,14 +407,10 @@
 				<Card class="fileOption" variant="outlined" style="flex: 1;">
 					<Content class="mdc-typography--subtitle2">{$t('export_options')}</Content>
 					<div class="optionsRoot">
-						{#if exportType === 'MobileSheets'}
-							<MobileSheetsOptions
-								bind:outputMetaData={metaDataFinal}
-								metaData={JSON.parse(msczMetadatas.toString())}
-							/>
-						{:else}
-							<p class="mdc-typography--body2">{$t('invalid_export_target_error')}</p>
-						{/if}
+						<MobileSheetsOptions
+							bind:outputMetaData={metaDataFinal}
+							metaData={JSON.parse(msczMetadatas.toString())}
+						/>
 					</div>
 					End of Card
 				</Card>
@@ -565,16 +422,16 @@
 						<List checkList>
 							{#each items as item}
 								<Item>
-									<Checkbox bind:group={selected} value={item.id} />
+									<Checkbox bind:group={selectedParts} value={item.id} />
 									<Label>{item.title}</Label>
 								</Item>
 							{/each}
 						</List>
 						<Group variant="outlined" style="display: flex;">
-							<Button on:click={selectAll} variant="outlined" style="flex: auto;"
+							<Button on:click={selectAllParts} variant="outlined" style="flex: auto;"
 								><Label>{$t('select_all_label')}</Label></Button
 							>
-							<Button on:click={clearSelection} variant="outlined" style="flex: auto;"
+							<Button on:click={clearPartsSelection} variant="outlined" style="flex: auto;"
 								><Label>{$t('clear_selection_label')}</Label></Button
 							>
 						</Group>
