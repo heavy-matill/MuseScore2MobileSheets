@@ -100,18 +100,15 @@ async function verifyAndStoreAccessToken(newAccessToken) {
 }
 
 export async function uploadFile(buffer, path) {
-    console.log(accessToken)
-
-
     dropboxClient = new Dropbox({ accessToken: accessToken });
     const sessionId = (await dropboxClient.filesUploadSessionStart({ close: false, contents: buffer })).result.session_id;
     let cursor = { session_id: sessionId, offset: buffer.byteLength };
-    const commit = { path: path, mode: 'add', autorename: true, mute: false };
+    const commit = { path: path, mode: 'overwrite', autorename: true, mute: false };
     //@ts-ignore
     const result = await dropboxClient.filesUploadSessionFinish({ cursor: cursor, commit: commit, contents: {} });
     return result
     return await dropboxClient.filesUploadSessionFinish({
-        commit: { path: path, mode: 'add' },
+        commit: { path: path, mode: 'overwrite' },
         contents: {}
     });
 
