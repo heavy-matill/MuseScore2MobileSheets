@@ -78,6 +78,7 @@ export function browseToDatabase(newAccessToken) {
             console.log('picked dropbox path:', result);
             set('path', result.path_display);
             mobileSheetsPath = result.path_display;
+            window.location.hash = '';
         });
 }
 
